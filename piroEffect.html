@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Fluid simulation with a dash of Reaction-Diffusion | WebGL shader demo</title>
+<script id="shader-vs" type="x-shader/x-vertex"> 
+varying vec2 vUv;
+void main(void) {
+   gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+   vUv = uv;
+}
+</script>
+
+<script id="shader-fs-show" type="x-shader/x-fragment"> 
+
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+
+uniform sampler2D sampler_fluid;
+varying vec2 vUv;
+
+void main(void) {
+  vec3 vp = texture2D(sampler_fluid, vUv).rga;
+	float l = .02+length(vp.rg)/3.;
+	gl_FragColor.b = l;
+	gl_FragColor.r = l+vp.z*30.;
+	gl_FragColor.g = l+vp.z*10.;
+	gl_FragColor.a = 1.;
+}
+</script> 
+
+<script id="shader-fs-copy" type="x-shader/x-fragment"> 
+
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+
+uniform sampler2D sampler_fluid;
+varying vec2 vUv;
+
+void main(void) {
+	gl_FragColor = texture2D(sampler_fluid, vUv);
+}
+</script> 
+
+<script id="shader-fs-init" type="x-shader/x-fragment"> 
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+
+varying vec2 vUv;
+void main(void){
+	gl_FragColor = vec4(0.);
+}
+</script>
+
+<script id="shader-fs-add-mouse-motion" type="x-shader/x-fragment"> 
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+
+uniform sampler2D sampler_fluid;
+uniform vec2 mouse; // mouse coordinate
+uniform vec2 mouseV; // mouse velocity
+uniform vec2 texSize;
+
+varying vec2 vUv;
+float mouseFilter(vec2 uv){
+	return clamp( 1.-length((uv-mouse)*texSize)/10., 0. , 1.);
+}
+
+void main(void){
+	gl_FragColor = texture2D(sampler_fluid, vUv);
+
+	if(length(mouseV) > 0.)
+		gl_FragColor.rg = mix(gl_FragColor.rg, mouseV*2., mouseFilter(vUv)*0.85);
+}
+
+</script>
+
+<script id="shader-fs-advect" type="x-shader/x-fragment"> 
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+
+uniform vec2 texSize;
+uniform vec2 pixelSize;
+uniform sampler2D sampler_fluid;
+
+varying vec2 vUv;
+  const float dt = .0008;
+
+float border(vec2 uv, float border, vec2 texSize){
+	uv*=texSize;
+	return (uv.x<border || uv.x>texSize.x-border || uv.y<border || uv.y >texSize.y-border) ? 1.:.0;
+}
+
+void main(void){
+	gl_FragColor = texture2D(sampler_fluid, vUv);
+
+	vec2 D = -texSize*vec2(gl_FragColor.x, gl_FragColor.y)*dt;
+
+   vec2 Df = floor(D),   Dd = D - Df;
+   vec2 vUv = vUv + Df*pixelSize;
+
+	vec2 uv1, uv2, uv3;
+
+	uv1 = vUv + pixelSize*vec2(1.,0.);
+	uv2 = vUv + pixelSize*vec2(0.,1.);
+	uv3 = vUv + pixelSize*vec2(1.,1.);
+
+	vec2 v0 = texture2D(sampler_fluid, vUv).rg;
+	vec2 v1 = texture2D(sampler_fluid, uv1).rg;
+	vec2 v2 = texture2D(sampler_fluid, uv2).rg;
+	vec2 v3 = texture2D(sampler_fluid, uv3).rg;
+
+	gl_FragColor.rg = mix( mix( v0, v1, Dd.x), mix( v2, v3, Dd.x), Dd.y)*(1.-border(vUv, 1., texSize));
+}
+
+</script>
+
+<script id="shader-fs-p" type="x-shader/x-fragment"> 
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+
+uniform vec2 pixelSize;
+uniform sampler2D sampler_fluid;
+varying vec2 vUv;
+const float h = 1./8.;
+
+void main(void){
+	gl_FragColor = texture2D(sampler_fluid, vUv);
+	vec2 n = texture2D(sampler_fluid, vUv - pixelSize*vec2(0.,1.)).ag;
+	float w = texture2D(sampler_fluid, vUv + pixelSize*vec2(1.,0.)).a;
+	float s = texture2D(sampler_fluid, vUv + pixelSize*vec2(0.,1.)).a;
+	vec2 e = texture2D(sampler_fluid, vUv - pixelSize*vec2(1.,0.)).ar;
+
+	float p = ( n.x + w + s + e.x - (gl_FragColor.x - e.y + gl_FragColor.y - n.y)*h ) * .25;
+
+	gl_FragColor.a = p;
+}
+</script>
+
+<script id="shader-fs-div" type="x-shader/x-fragment"> 
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+
+uniform vec2 pixelSize;
+uniform sampler2D sampler_fluid;
+varying vec2 vUv;
+
+void main(void){
+	float p_x = texture2D(sampler_fluid, vUv + vec2(1.,0.)*pixelSize).a;
+	float p_y = texture2D(sampler_fluid, vUv + vec2(0.,1.)*pixelSize).a;
+
+	gl_FragColor = texture2D(sampler_fluid, vUv);
+	gl_FragColor.rg -= (vec2(p_x, p_y)-gl_FragColor.a)*4.;
+}
+</script>
+
+<style>
+	p { position: fixed; }
+	body { margin:0; padding:0; }
+</style>
+</head>
+<body>
+	<p>FPS: <span id="fps"></span></p>
+	
+	<script src="three.min.js"></script>
+	<script type="text/javascript">
+
+var simScale = 2; // factor for reduced buffer size (TODO) 
+
+// main animation loop vars
+
+var sizeX = 1024;	// texture size (must be powers of two)
+var sizeY = 512;
+
+var halted = false;
+var delay = 1/60;
+var it = 1;	// main loop buffer toggle
+var frame = 0; // frame counter (to be resetted every 1000ms)
+var fps;
+var time;
+var timer;
+
+var mouseX = 0.5;
+var mouseY = 0.5;
+var oldMouseX = 0;
+var oldMouseY = 0;
+var mouseDx = 0;
+var mouseDy = 0;
+	
+// MAIN
+
+// standard global variables
+var container, scene, camera, sceneRTT, cameraRTT, renderer, volumeShaderMaterial, backfaceShaderMaterial;
+var fboFluidVP, fboFluidBackBuffer;
+var clock = new THREE.Clock();
+// custom global variables
+var cube, theta, phi, radius;
+
+init();
+animate();
+
+// FUNCTIONS 
+function updateCamera() {
+	camera.position.x = radius * Math.sin( theta ) * Math.cos( phi );
+	camera.position.y = radius * Math.sin( phi );
+	camera.position.z = radius * Math.cos( theta ) * Math.cos( phi );
+	camera.lookAt(scene.position);
+	camera.updateMatrix();
+}
+function onDocumentMouseMove( event ) {
+	theta = ( event.clientX - window.innerWidth/2 ) / window.innerWidth * Math.PI * 2 ;
+	phi = ( event.clientY - window.innerHeight/2 ) / window.innerHeight * Math.PI ;
+	mouseX = event.pageX / window.innerWidth;
+	mouseY = 1 - event.pageY / window.innerHeight;
+	updateCamera();
+}
+function onDocumentMouseWheel( event ) {
+	radius += event.deltaY | -event.wheelDeltaY/40;
+	updateCamera();
+}
+		
+function init() {
+	// SCENE
+	scene = new THREE.Scene();
+	sceneRTT = new THREE.Scene();
+	
+	// CAMERA
+	var SCREEN_WIDTH = window.innerWidth, SCREEN_HEIGHT = window.innerHeight;
+	var VIEW_ANGLE = 45, ASPECT = SCREEN_WIDTH / SCREEN_HEIGHT, NEAR = 0.1, FAR = 20000;
+	camera = new THREE.PerspectiveCamera( VIEW_ANGLE, ASPECT, NEAR, FAR);
+	cameraRTT = new THREE.OrthographicCamera( window.innerWidth / - 2, window.innerWidth / 2, window.innerHeight / 2, window.innerHeight / - 2, 1, 1000 );
+	cameraRTT.position.z = 100;
+				
+	scene.add(camera);
+	sceneRTT.add(cameraRTT);
+	radius = 200;
+	theta = 0;
+	phi = 0;
+	updateCamera();
+	document.onmousemove = onDocumentMouseMove;
+	document.onmousewheel = document.onwheel = onDocumentMouseWheel;
+	// RENDERER
+	renderer = new THREE.WebGLRenderer( {antialias:true} );
+	
+	renderer.setSize(SCREEN_WIDTH, SCREEN_HEIGHT);
+	container = document.createElement( 'div' );
+	document.body.appendChild( container );
+	container.appendChild( renderer.domElement );
+	
+	////////////
+	// CUSTOM //
+	////////////
+
+	fboFluidVP = new THREE.WebGLRenderTarget( sizeX/simScale, sizeY/simScale, { wrapS: THREE.CLAMP_TO_EDGE, wrapT: THREE.CLAMP_TO_EDGE, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, format: THREE.RGBAFormat } );
+	fboFluidBackBuffer = new THREE.WebGLRenderTarget( sizeX/simScale, sizeY/simScale, { wrapS: THREE.CLAMP_TO_EDGE, wrapT: THREE.CLAMP_TO_EDGE, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, format: THREE.RGBAFormat } );
+	
+	var cubeGeometry = new THREE.PlaneGeometry( window.innerWidth, window.innerHeight );
+	
+	initShaderMaterial = new THREE.ShaderMaterial( 
+	{
+	    uniforms: 		{},
+		attributes: 	{},
+		vertexShader:   document.getElementById( 'shader-vs'   ).textContent,
+		fragmentShader: document.getElementById( 'shader-fs-init' ).textContent
+	});
+	
+	addForcesShaderMaterial = new THREE.ShaderMaterial( 
+	{
+	    uniforms: {
+			sampler_fluid: 	{ type: 't', value: fboFluidVP },
+			mouse: 		{ type: 'v2', value: new THREE.Vector2(mouseX, mouseY) },
+			mouseV: 	{ type: 'v2', value: new THREE.Vector2(mouseDx, mouseDy) },
+			texSize: 	{ type: 'v2', value: new THREE.Vector2(sizeX/simScale, sizeX/simScale) }
+		},
+		attributes: 	{},
+		vertexShader:   document.getElementById( 'shader-vs'   ).textContent,
+		fragmentShader: document.getElementById( 'shader-fs-add-mouse-motion' ).textContent
+	});
+
+	advectShaderMaterial = new THREE.ShaderMaterial( 
+	{
+	    uniforms: {
+			sampler_fluid: 	{ type: 't', value: fboFluidBackBuffer },
+			pixelSize: 		{ type: 'v2', value: new THREE.Vector2(1. / (sizeX/simScale), 1. / (sizeY/simScale)) },
+			texSize: 		{ type: 'v2', value: new THREE.Vector2(sizeX/simScale, sizeX/simScale) }
+		},
+		attributes: 	{},
+		vertexShader:   document.getElementById( 'shader-vs'   ).textContent,
+		fragmentShader: document.getElementById( 'shader-fs-advect' ).textContent
+	});
+	
+	diffuseShaderMaterial = new THREE.ShaderMaterial( 
+	{
+	    uniforms: {
+			sampler_fluid: 	{ type: 't', value: fboFluidVP },
+			pixelSize: 		{ type: 'v2', value: new THREE.Vector2(1. / (sizeX/simScale), 1. / (sizeY/simScale)) }
+		},
+		attributes: 	{},
+		vertexShader:   document.getElementById( 'shader-vs'   ).textContent,
+		fragmentShader: document.getElementById( 'shader-fs-p' ).textContent
+	});
+	diffuseShaderMaterial2 = new THREE.ShaderMaterial( 
+	{
+	    uniforms: {
+			sampler_fluid: 	{ type: 't', value: fboFluidBackBuffer },
+			pixelSize: 		{ type: 'v2', value: new THREE.Vector2(1. / (sizeX/simScale), 1. / (sizeY/simScale)) }
+		},
+		attributes: 	{},
+		vertexShader:   document.getElementById( 'shader-vs'   ).textContent,
+		fragmentShader: document.getElementById( 'shader-fs-p' ).textContent
+	});
+	
+	divShaderMaterial = new THREE.ShaderMaterial( 
+	{
+	    uniforms: {
+			sampler_fluid: 	{ type: 't', value: fboFluidVP },
+			pixelSize: 		{ type: 'v2', value: new THREE.Vector2(1. / (sizeX/simScale), 1. / (sizeY/simScale)) }
+		},
+		attributes: 	{},
+		vertexShader:   document.getElementById( 'shader-vs'   ).textContent,
+		fragmentShader: document.getElementById( 'shader-fs-div' ).textContent
+	});
+	
+	copyShaderMaterial = new THREE.ShaderMaterial( 
+	{
+	    uniforms: {
+			sampler_fluid: 	{ type: 't', value: fboFluidBackBuffer }
+		},
+		attributes: 	{},
+		vertexShader:   document.getElementById( 'shader-vs'   ).textContent,
+		fragmentShader: document.getElementById( 'shader-fs-copy' ).textContent
+	});
+	
+	displayShaderMaterial = new THREE.ShaderMaterial( 
+	{
+	    uniforms: {
+			sampler_fluid: 	{ type: 't', value: fboFluidVP }
+		},
+		attributes: 	{},
+		vertexShader:   document.getElementById( 'shader-vs'   ).textContent,
+		fragmentShader: document.getElementById( 'shader-fs-show' ).textContent
+	});
+	
+	cube = new THREE.Mesh(	cubeGeometry, initShaderMaterial );
+	cube.position.set(0, 0, -100);
+	scene.add( cube );
+	sceneRTT.add( cube );
+	
+	fluidInit(fboFluidVP);
+	fluidInit(fboFluidBackBuffer);
+	
+	timer = setInterval(fr, 1000);
+}
+
+function fluidInit(fbo){
+	cube.material = initShaderMaterial;
+	renderer.render( sceneRTT, cameraRTT, fbo, true );
+}
+	
+function animate() {
+    requestAnimationFrame( animate );
+	render();		
+	update();
+}
+
+function update() {
+	var delta = clock.getDelta();
+	oldMouseX = mouseX;
+	oldMouseY = mouseY;
+	frame++
+}
+
+function render() {
+	if (oldMouseX != 0 && oldMouseY != 0) {
+		mouseDx = (mouseX - oldMouseX) * window.innerWidth; mouseDx = Math.sqrt(mouseDx*mouseDx);
+		mouseDy = (mouseY - oldMouseY) * window.innerHeight; mouseDy = Math.sqrt(mouseDy*mouseDy);
+	}
+
+	addMouseMotion();
+	advect();
+	
+	diffuse();
+	
+	cube.material = copyShaderMaterial;
+	renderer.render( sceneRTT, cameraRTT, fboFluidVP, true );
+	
+	cube.material = displayShaderMaterial;
+	renderer.render( sceneRTT, cameraRTT );
+}
+
+function addMouseMotion(){
+	addForcesShaderMaterial.uniforms.mouse.value.x = mouseX;
+	addForcesShaderMaterial.uniforms.mouse.value.y = mouseY;
+	addForcesShaderMaterial.uniforms.mouseV.value.x = mouseDx;
+	addForcesShaderMaterial.uniforms.mouseV.value.y = mouseDy;
+
+	cube.material = addForcesShaderMaterial;
+	renderer.render( sceneRTT, cameraRTT, fboFluidBackBuffer, true );
+}
+
+function advect(){
+	cube.material = advectShaderMaterial;
+	//advectShaderMaterial.uniforms.sampler_fluid.value = fboFluidBackBuffer;
+	renderer.render( sceneRTT, cameraRTT, fboFluidVP, true );
+}
+
+function diffuse(){
+	for ( var i = 0; i < 30; i++) {
+		cube.material = diffuseShaderMaterial;
+		renderer.render( sceneRTT, cameraRTT, fboFluidBackBuffer, true );
+		cube.material = diffuseShaderMaterial2;
+		renderer.render( sceneRTT, cameraRTT, fboFluidVP, true );
+	}
+	
+	cube.material = divShaderMaterial;
+	renderer.render( sceneRTT, cameraRTT, fboFluidBackBuffer, true );
+}
+
+function fr() { // updates every second
+	document.getElementById("fps").textContent = frame;
+	console.log(frame);
+	frame = 0;
+}
+	</script>
+</body>
+</html>
